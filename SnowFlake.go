@@ -1,7 +1,7 @@
 // Refer to the implementation of twitter snowflake algorithm golang
 // The code is for learning reference only
 // @author:Jay
-package snowflake
+package SnowFlake
 
 import (
 	"errors"
@@ -50,7 +50,7 @@ var (
 	lastTimestamp int64 = -1
 )
 
-// 构造函数
+// 构造函数 默认都传入0即可
 // @param: MachineId 机器ID(0~31)
 // @param: dataCenterId 数据中心ID(0~31)
 func GetSnowFlake(machineId, dataCenterId int64) SnowFlake {
