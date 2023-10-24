@@ -1,4 +1,4 @@
-# SnowFlake
+# SnowFlake V0.0.4
  Golang implementation of Twitter’s snowflake algorithm
 
 # speed
