@@ -5,125 +5,141 @@ package snowflake
 
 import (
 	"errors"
-	"fmt"
+	"strconv"
 	"sync"
 	"time"
 )
 
-type SnowFlake struct {
-	// 机器ID(0~31)
-	machineId int64
-	// 数据中心ID(0~31)
-	dataCenterId int64
-	// 地区
-	location *time.Location
-}
-
 var (
-	// 默认开始时间戳 2018-01-01 00:00:00
+	// Default start timestamp 2018-01-01 00:00:00
+	// You can customize the start timestamp
 	originTimestamp int64 = 1514736000000
-	// 数据中心ID所占位数 5位
-	dataCenterIdBits int64 = 5
-	// 机器标识所占位数 5位
-	machineWorkerIdBits int64 = 5
-	// 最大数据中心ID 31
-	maxDataCenterId int64 = -1 * (-1 << dataCenterIdBits)
-	// 最大机器标识ID 31
-	maxMachineWorkerId int64 = -1 * (-1 << machineWorkerIdBits)
-	// 序列号所占位数 12
-	sequenceBits int64 = 12
-	// 机器ID左移12位(序列号位数)
-	MachineIdShift = sequenceBits
-	// 数据中心ID左移17位(序列号+机器ID位)
-	datacenterIdShift = sequenceBits + machineWorkerIdBits
-	// 时间戳向左移动22位(序列号+机器ID位+数据中心ID位)
-	timestampShift = sequenceBits + machineWorkerIdBits + dataCenterIdBits
-	// 生成序列掩码 4095<-(0b111111111111=0xfff)<-(1<<12)
-	sequenceMask int64 = -1 * (-1 << sequenceBits)
-	// 机器ID(0~31)
-	machineId int64
-	// 数据中心ID(0~31)
-	dataCenterId int64
-	// 毫秒内序列(0~4095)
-	sequence int64 = 0
-	// 上次生成ID的时间戳
-	lastTimestamp int64 = -1
+
+	// machineBits is the number of working machine id bits
+	// Remember, you have a total 22 bits to share between machineBits-sequenceBits
+	machineBits uint8 = 10
+
+	// sequenceBits is the number of digits in the serial number id
+	sequenceBits uint8 = 12
 )
 
-// 构造函数 默认都传入0即可
-// @param: MachineId 机器ID(0~31)
-// @param: dataCenterId 数据中心ID(0~31)
-func GetSnowFlake(machineId, dataCenterId int64) SnowFlake {
-	var snowf SnowFlake
-	if machineId > maxMachineWorkerId || machineId < 0 {
-		panic(fmt.Sprintf("machine Id can't be greater than %d or less than 0", maxMachineWorkerId))
-	}
-	if dataCenterId > maxDataCenterId || dataCenterId < 0 {
-		panic(fmt.Sprintf("dataCenter Id can't be greater than %d or less than 0", maxDataCenterId))
-	}
-	snowf.machineId = machineId
-	snowf.dataCenterId = dataCenterId
-	return snowf
+type SnowFlake struct {
+	lock            sync.Mutex // Lock
+	originTimestamp int64      // origin timestamp
+	epoch           time.Time  // current timestamp
+	lastTimestamp   int64      // The timestamp of the latest ID
+	node            int64
+	sequence        int64          // Sequence within milliseconds (0~4095)
+	nodeMax         int64          // Maximum machine identification ID
+	nodeMask        int64          // machine and serial mask
+	sequenceMask    int64          // serial number mask
+	timeShift       uint8          // machine and serial Shift left bits
+	sequenceShift   uint8          // serial number Shift left bits
+	location        *time.Location // Location
 }
 
-// 获得下一个ID
-// @return snowflakeId
-func (snowf *SnowFlake) NextId() int64 {
-	var lock sync.Mutex
-	lock.Lock()
-	defer lock.Unlock()
-	timestamp := snowf.timeNow()
-	// 如果当前时间小于上一次ID生成的时间戳,说明系统时钟回退过,抛出异常Panic
-	if timestamp < lastTimestamp {
-		panic(fmt.Sprintf("Clock moved backwards.  Refusing to generate id for %d milliseconds", lastTimestamp-timestamp))
+// Default:(0,"","")
+// @param: node int64. between 1~1024 default:0
+// @param: location string. example: "Asia/Shanghai" default:""
+// @param: startTime string. example: "2022-10-10 10:00:00" default:""
+// @return: a new snowflake node that can be used to generate snowflake
+func GetSnowFlake(node int64, location string, startTime string) (*SnowFlake, error) {
+	// Work machine id and serial number
+	if machineBits+sequenceBits > 22 {
+		return nil, errors.New("Remember, you have a total 22 bits to share between machineBits-sequenceBits")
 	}
-	// 如果是同一时间生成,进行毫秒内序列sequence排序
-	if timestamp == lastTimestamp {
-		sequence = (sequence + 1) & sequenceMask
-		// 毫秒内序列溢出 超过4095个
-		if sequence == 0 {
-			// 阻塞到下一个毫秒,获得新的时间戳
-			timestamp = snowf.timeNextMilli(lastTimestamp)
+
+	snowf := SnowFlake{}
+	snowf.node = node
+	snowf.nodeMax = -1 ^ (-1 << machineBits)       // max 1023
+	snowf.nodeMask = snowf.nodeMax << sequenceBits // Shift left 22 bits
+	snowf.sequenceMask = -1 ^ (-1 << sequenceBits) // 4095
+	snowf.timeShift = machineBits + sequenceBits   // machine and serial bits
+	snowf.sequenceShift = sequenceBits             // serial number bits
+
+	// node needs to be between 0 and 1024(1<<10) Work machine id bits
+	if snowf.node < 0 || snowf.node > snowf.nodeMax {
+		return nil, errors.New("Node number must be between 0 and " + strconv.FormatInt(snowf.nodeMax, 10))
+	}
+	// The location is empty by default. If it is not empty, the corresponding time zone is specified.
+	if location == "" {
+		snowf.loadLocation("")
+	} else {
+		if err := snowf.loadLocation(location); err != nil {
+			return nil, err
 		}
-	} else { // 时间戳改变,毫秒内时间戳重置
-		sequence = 0
 	}
-	// 上次生成ID的时间截
-	lastTimestamp = timestamp
-	// 移位并通过 或运行 拼成64位ID
-	return ((timestamp-originTimestamp)<<timestampShift | (dataCenterId << datacenterIdShift) | (machineId << MachineIdShift) | sequence)
+	// startTime is empty by default. If it is not empty, the initial time node is specified.
+	if startTime == "" {
+		snowf.originTimestamp = originTimestamp // start time
+	} else {
+		if err := snowf.setStartTime(startTime); err != nil {
+			return nil, err
+		}
+	}
 
+	var curTime = time.Now().In(snowf.location)
+	// add time.Duration to curTime to make sure we use the monotonic clock if available
+	snowf.epoch = curTime.Add(time.Unix(snowf.originTimestamp/1000, (snowf.originTimestamp%1000)*1000000).Sub(curTime))
+
+	return &snowf, nil
 }
 
-// 获取以毫秒为单位的当前时间
-// @param timeZone 时区localSH, _ := time.LoadLocation("Asia/Shanghai")
-// @return 当前毫秒时间
-func (snowf *SnowFlake) timeNow() int64 {
-	if snowf.location == nil {
-		return time.Now().UnixMilli()
+// Generate creates and returns a unique snowflake ID
+// To help guarantee uniqueness
+// Make sure your system is keeping accurate system time
+// Make sure you never have multiple nodes running with the same node ID
+// @return snowflakeId
+func (snowf *SnowFlake) Generate() int64 {
+
+	snowf.lock.Lock()
+	defer snowf.lock.Unlock()
+	// current time
+	timestamp := time.Since(snowf.epoch).Milliseconds()
+	// If they are generated at the same time, sort the sequence within milliseconds.
+	if timestamp == snowf.lastTimestamp {
+		snowf.sequence = (snowf.sequence + 1) & snowf.sequenceMask
+		// Sequence overflow exceeds 4095 in milliseconds
+		if snowf.sequence == 0 {
+			for timestamp <= snowf.lastTimestamp {
+				timestamp = time.Since(snowf.epoch).Milliseconds()
+			}
+		}
+	} else {
+		// Timestamp changes, timestamp resets within milliseconds
+		snowf.sequence = 0
 	}
-	return time.Now().In(snowf.location).UnixMilli()
+	// The last time the ID was generated
+	snowf.lastTimestamp = timestamp
+
+	// Shift and pass or run to spell the 64-bit ID
+	return int64((timestamp)<<snowf.timeShift |
+		(snowf.node << snowf.sequenceShift) |
+		(snowf.sequence),
+	)
 }
 
-// 阻塞到下一个毫秒，直到获得新的时间戳
-// @param lastTimestamp 上次生成ID的时间截
-// @return 当前时间戳
-func (snowf *SnowFlake) timeNextMilli(lastTimestamp int64) int64 {
-	timestamp := snowf.timeNow()
-	for timestamp <= lastTimestamp {
-		timestamp = snowf.timeNow()
-	}
-	return timestamp
-}
-
-// 设置指定时区的时间,默认为本地时间
-// @param location 地区 例如:Asia/Shanghai 中国上海
-// @return error 指定时区失败返回错误信息,否则返回nil
-func (snowf *SnowFlake) LoadLocation(location string) error {
+// Set the time in the specified time zone, the default is local time
+// @param location. region For example: Asia/Shanghai Shanghai, China
+// @return error. If the time zone fails to be specified, an error message will be returned, otherwise nil will be returned.
+func (snowf *SnowFlake) loadLocation(location string) error {
 	localSH, err := time.LoadLocation(location)
 	if err != nil {
-		return errors.New("指定时区:" + location + "失败,请检查后使用")
+		return errors.New("Specify time zone: [" + location + "] Failed, please check before using")
 	}
 	snowf.location = localSH
+	return nil
+}
+
+// Set the specified start timestamp
+// @param startTime. for example:"2022-10-10 10:00:00"
+func (snowf *SnowFlake) setStartTime(startTime string) error {
+	timeTmeplate := "2006-01-02 15:04:05"
+	// Parse datetime string
+	times, err := time.ParseInLocation(timeTmeplate, startTime, snowf.location)
+	if err != nil {
+		return err
+	}
+	snowf.originTimestamp = times.UnixMilli()
 	return nil
 }
