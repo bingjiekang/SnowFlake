@@ -45,7 +45,7 @@ func main(){
 
 #  Introduction 
 
-temporarily the default is to use 2018-01-01 00:00:00 as the starting calculation time
++ temporarily the default is to use 2018-01-01 00:00:00 as the starting calculation time
 
 ## snowflake.GetSnowFlake() initialization function
 
