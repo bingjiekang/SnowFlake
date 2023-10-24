@@ -43,7 +43,9 @@ func main(){
 }
 ```
 
-#  Introduction (temporarily the default is to use 2018-01-01 00:00:00 as the starting calculation time)
+#  Introduction 
+
+temporarily the default is to use 2018-01-01 00:00:00 as the starting calculation time
 
 ## snowflake.GetSnowFlake() initialization function
 
@@ -71,7 +73,7 @@ snowflake.GetSnowFlake(0, "Asia/shaai", "2022-10-10 10:00:00")
 func (snowf *SnowFlake) loadLocation(location string) error {
 	localSH, err := time.LoadLocation(location)
 	if err != nil {
-		return errors.New("指定时区:" + location + "失败,请检查后使用")
+		return errors.New("Specify time zone: [" + location + "] Failed, please check before using")
 	}
 	snowf.location = localSH
 	return nil
