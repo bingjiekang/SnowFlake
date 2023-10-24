@@ -1,56 +1,55 @@
 # SnowFlake
- Twitter雪花算法的Golang实现
+ Golang implementation of Twitter’s snowflake algorithm
 
-# 使用方法:
+# Instructions:
 
-## 下载依赖包
+## Download dependency packages
 
 ```golang
 go get "github.com/bingjiekang/SnowFlake"
 ```
 
-## 导入依赖包
+## Import dependency packages
 
 ```golang
 import (
-    "github.com/bingjiekang/SnowFlake"
+    snowflake "github.com/bingjiekang/SnowFlake"
 )   
 ```
 
-## 使用
+## use
 
 ```golang
 func main(){
-	 // 初始化
-	 tm := SnowFlake.GetSnowFlake(0, 0)
+	 // initialization
+	 tm := snowflake.GetSnowFlake(0, 0)
 	 for i := 0; i < 100; i++ {
-        // 获得id
+        // get id
 		fmt.Println(tm.NextId())
 	}
 }
 ```
 
-#  介绍
+#  Introduction (temporarily the default is to use 2018-01-01 00:00:00 as the starting calculation time)
 
-## SnowFlake.GetSnowFlake() 初始化函数
+## snowflake.GetSnowFlake() initialization function
 
 ```golang
-SnowFlake.GetSnowFlake(0, 0) // 用来初始化函数，两个参数范围在0~31，默认传入0即可
+snowflake.GetSnowFlake(0, 0) // Used to initialize the function. The two parameters range from 0 to 31. By default, 0 can be passed in.
 ```
 
-## .NextId() 用来获取不同ID
+## .NextId() is used to get different IDs
 
 ```golang
-snowf := SnowFlake.GetSnowFlake(0, 0)
+snowf := snowflake.GetSnowFlake(0, 0)
 fmt.Println(snowf.NextId()) // output ID
 ```
 
-## .LoadLocation() 加载时区，默认为本机时间
+## .LoadLocation() loads the time zone, the default is local time
 
 ```golang
-snowf := SnowFlake.GetSnowFlake(0, 0)
+// .LoadLocation() The incoming parameter is a string, refer to time.LoadLocation() to support time zones
+snowf := snowflake.GetSnowFlake(0, 0)
 snowf.LoadLocation("Asia/Shanghai") // shanghai location
 fmt.Println(snowf.NextId()) // output ID
-
-// .LoadLocation() 传入参数为字符串，参考time.LoadLocation()支持时区
 ```

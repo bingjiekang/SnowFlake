@@ -1,7 +1,7 @@
 // Refer to the implementation of twitter snowflake algorithm golang
 // The code is for learning reference only
 // @author:Jay
-package SnowFlake
+package snowflake
 
 import (
 	"errors"
